@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>樂高抽屜標籤列印 (L1437 多圖版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase Config ---
+        const fallbackConfig = {
+          apiKey: "AIzaSyAXwfm45p417iStJ556rYxR-qsty6dSaXc",
+          authDomain: "lego-number.firebaseapp.com",
+          projectId: "lego-number",
+          storageBucket: "lego-number.firebasestorage.app",
+          messagingSenderId: "1041577725604",
+          appId: "1:1041577725604:web:b46696cd0933d1a3602031",
+          measurementId: "G-25BT9NGHW1"
+        };
+
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : fallbackConfig;
+        
+        let db;
+
+        async function initApp() {
+            try {
+                const app = initializeApp(firebaseConfig);
+                const auth = getAuth(app);
+                db = getFirestore(app);
+                
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        document.getElementById('status').innerHTML = '<span class="text-green-600"><i class="fa-solid fa-check-circle"></i> 已連線至雲端</span>';
+                        document.getElementById('load-btn').disabled = false;
+                    } else {
+                        signInAnonymously(auth);
+                    }
+                });
+            } catch (e) {
+                console.error("Firebase Init Error", e);
+                document.getElementById('status').innerHTML = '<span class="text-red-500">連線錯誤，請檢查設定</span>';
+            }
+        }
+
+        window.loadData = async () => {
+            if (!db) return;
+            const btn = document.getElementById('load-btn');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 讀取中...';
+            btn.disabled = true;
+
+            try {
+                const querySnapshot = await getDocs(collection(db, 'artifacts', 'lego-number-app', 'public', 'data', 'lego_mappings'));
+                
+                const drawerMap = {};
+
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    let drawers = [];
+                    if (Array.isArray(data.drawers)) drawers = data.drawers;
+                    else if (data.drawer_id) drawers = [data.drawer_id];
+
+                    drawers.forEach(drawerId => {
+                        if (!drawerMap[drawerId]) drawerMap[drawerId] = [];
+                        // 儲存每個零件的資料
+                        drawerMap[drawerId].push({
+                            id: data.part_id,
+                            img: data.img_url || "" 
+                        });
+                    });
+                });
+
+                renderLabels(drawerMap);
+                btn.innerHTML = '<i class="fa-solid fa-rotate"></i> 重新讀取';
+                btn.disabled = false;
+                
+                document.getElementById('preview-section').scrollIntoView({ behavior: 'smooth' });
+
+            } catch (error) {
+                console.error("Error loading docs: ", error);
+                alert("讀取資料失敗: " + error.message);
+                btn.innerHTML = '讀取失敗';
+            }
+        };
+
+        function naturalSort(a, b) {
+            return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+        }
+
+        function renderLabels(drawerMap) {
+            const container = document.getElementById('pages-container');
+            container.innerHTML = '';
+
+            const sortedDrawerIds = Object.keys(drawerMap).sort(naturalSort);
+            
+            // L1437: 95格
+            const labelsPerPage = 95; 
+            const totalLabels = sortedDrawerIds.length;
+            const totalPages = Math.ceil(totalLabels / labelsPerPage);
+
+            for (let i = 0; i < totalPages; i++) {
+                const page = document.createElement('div');
+                page.className = 'page';
+                
+                const pageContent = document.createElement('div');
+                pageContent.className = 'labels-grid';
+                
+                const pageIds = sortedDrawerIds.slice(i * labelsPerPage, (i + 1) * labelsPerPage);
+                
+                pageIds.forEach(drawerId => {
+                    const parts = drawerMap[drawerId];
+                    const label = createLabelElement(drawerId, parts);
+                    pageContent.appendChild(label);
+                });
+
+                page.appendChild(pageContent);
+                container.appendChild(page);
+            }
+            
+            updateStyles(); 
+        }
+
+        function createLabelElement(drawerId, parts) {
+            const div = document.createElement('div');
+            div.className = 'label-cell';
+            
+            // 1. 取得該抽屜內所有 "不重複" 的圖片網址
+            const uniqueImages = [...new Set(parts.map(p => p.img).filter(url => url && url.length > 0))];
+
+            // 2. 限制顯示數量
+            const maxImages = 3;
+            const imagesToShow = uniqueImages.slice(0, maxImages);
+            
+            // 3. 根據圖片數量決定 class
+            let imgClass = 'img-single';
+            if (imagesToShow.length === 2) imgClass = 'img-double';
+            if (imagesToShow.length >= 3) imgClass = 'img-triple';
+
+            const imagesHtml = imagesToShow.map(url => 
+                `<img src="${url}" class="label-img ${imgClass}" onerror="this.style.display='none'">`
+            ).join('');
+
+            div.innerHTML = `
+                <div class="label-id">${drawerId}</div>
+                <div class="label-content">
+                    ${imagesHtml}
+                </div>
+            `;
+            return div;
+        }
+
+        initApp();
+    </script>
+
+    <style>
+        /* UI 樣式 */
+        body { background: #f0f2f5; font-family: 'Noto Sans TC', sans-serif; }
+        .control-panel {
+            background: white; padding: 20px; border-bottom: 1px solid #ddd;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            position: sticky; top: 0; z-index: 50;
+        }
+        
+        /* 列印樣式核心設定 */
+        @media print {
+            body { background: white; -webkit-print-color-adjust: exact; }
+            /* 隱藏控制面板和任何帶有 no-print class 的元素 */
+            .control-panel, .no-print { display: none !important; }
+            .page { 
+                box-shadow: none !important; 
+                margin: 0 !important; 
+                border: none !important;
+                page-break-after: always;
+            }
+            @page { size: A4; margin: 0; }
+        }
+
+        .page {
+            width: 210mm;
+            height: 297mm;
+            background: white;
+            margin: 20px auto;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            position: relative;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        .labels-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 37mm);
+            grid-template-rows: repeat(19, 14mm);
+        }
+
+        .label-cell {
+            width: 37mm;
+            height: 14mm;
+            border: 1px dashed #e5e7eb;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            padding: 0.5mm 1mm;
+            overflow: hidden;
+            page-break-inside: avoid;
+            position: relative; /* 關鍵：為了讓 label-id 絕對定位 */
+        }
+        
+        @media print { .label-cell { border: none; } }
+
+        /* 修改後的抽屜號碼樣式 */
+        .label-id {
+            position: absolute;
+            top: 0.5mm;
+            left: 0.5mm;
+            width: 6mm;         /* 設定固定寬度 */
+            height: 6mm;        /* 設定固定高度 */
+            border: 1px solid #000; /* 外圍圓圈 */
+            border-radius: 50%; /* 圓形 */
+            font-size: 7pt;     /* 縮小字體 */
+            font-weight: 900;
+            color: #000;
+            background-color: white; /* 白底，避免與圖片重疊時看不清 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            line-height: 1;
+            z-index: 10;        /* 確保浮在圖片上方 */
+        }
+
+        .label-content {
+            flex: 1;
+            display: flex;
+            justify-content: space-evenly;
+            align-items: center;
+            height: 100%;
+            overflow: hidden;
+            padding-left: 3mm; /* 稍微往右推，避免被左上角的圓圈完全擋住 */
+        }
+
+        .label-img {
+            object-fit: contain;
+            height: 100%;
+        }
+
+        /* 動態圖片大小控制 */
+        .img-single {
+            max-width: 24mm;
+            max-height: 12mm;
+        }
+        .img-double {
+            max-width: 11mm;
+            max-height: 11mm;
+        }
+        .img-triple {
+            max-width: 7mm;
+            max-height: 10mm;
+        }
+
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div class="control-panel no-print">
+        <div class="max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-xl font-bold text-gray-800"><i class="fa-solid fa-print mr-2"></i>樂高標籤列印 (L1437 多圖版)</h1>
+                <p class="text-sm text-gray-500 mt-1" id="status">正在連線...</p>
+            </div>
+
+            <div class="bg-blue-50 p-3 rounded-lg border border-blue-100 text-sm flex gap-4 items-center">
+                <div class="flex flex-col">
+                    <label class="font-bold text-blue-800 text-xs">上邊距</label>
+                    <div class="flex items-center">
+                        <input type="number" id="margin-top" value="15.5" step="0.5" class="w-16 p-1 border rounded text-center" onchange="updateStyles()">
+                        <span class="ml-1 text-xs">mm</span>
+                    </div>
+                </div>
+                <div class="flex flex-col">
+                    <label class="font-bold text-blue-800 text-xs">左邊距</label>
+                    <div class="flex items-center">
+                        <input type="number" id="margin-left" value="12.5" step="0.5" class="w-16 p-1 border rounded text-center" onchange="updateStyles()">
+                        <span class="ml-1 text-xs">mm</span>
+                    </div>
+                </div>
+                <div class="h-8 w-px bg-blue-200"></div>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="show-borders" class="accent-blue-600" checked onchange="toggleBorders()">
+                    <label for="show-borders" class="text-gray-700 text-xs cursor-pointer">預覽框線</label>
+                </div>
+            </div>
+
+            <div class="flex gap-2">
+                <button id="load-btn" onclick="loadData()" disabled class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold shadow disabled:bg-gray-300 disabled:cursor-not-allowed transition">
+                    讀取資料
+                </button>
+                <button onclick="window.print()" class="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg font-bold shadow transition">
+                    <i class="fa-solid fa-print"></i> 列印
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 加上 no-print class 確保這段文字不會被列印 -->
+    <div id="preview-section" class="py-8 text-center text-gray-500 text-sm no-print">
+        請點擊上方按鈕讀取資料，預覽畫面將顯示於此。
+    </div>
+
+    <div id="pages-container"></div>
+
+    <script>
+        window.updateStyles = () => {
+            const top = document.getElementById('margin-top').value;
+            const left = document.getElementById('margin-left').value;
+            const pages = document.querySelectorAll('.labels-grid');
+            pages.forEach(grid => {
+                grid.style.paddingTop = `${top}mm`;
+                grid.style.paddingLeft = `${left}mm`;
+            });
+        };
+
+        window.toggleBorders = () => {
+            const show = document.getElementById('show-borders').checked;
+            const style = document.getElementById('dynamic-style') || document.createElement('style');
+            style.id = 'dynamic-style';
+            style.innerHTML = show ? '' : '.label-cell { border: none !important; }';
+            document.head.appendChild(style);
+        };
+    </script>
+
+</body>
+</html>
