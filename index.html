@@ -1,336 +1,309 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>樂高抽屜標籤列印 (L1437 多圖版)</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <!-- Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BrickSort 抽屜標籤列印 (L1437)</title>
+<style>
+  :root { --accent: #F5A623; --bg: #1a1a1a; --card: #242424; --text: #e8e4dc; --muted: #9c9a92; --green: #4CAF50; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; }
 
-        // --- Firebase Config ---
-        const fallbackConfig = {
-          apiKey: "AIzaSyAXwfm45p417iStJ556rYxR-qsty6dSaXc",
-          authDomain: "lego-number.firebaseapp.com",
-          projectId: "lego-number",
-          storageBucket: "lego-number.firebasestorage.app",
-          messagingSenderId: "1041577725604",
-          appId: "1:1041577725604:web:b46696cd0933d1a3602031",
-          measurementId: "G-25BT9NGHW1"
-        };
+  .control-panel {
+    background: var(--card); padding: 16px 20px; border-bottom: 2px solid var(--accent);
+    position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  .control-panel h1 { font-size: 16px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+  .control-panel h1 span { font-size: 11px; color: var(--muted); font-weight: 400; display: block; }
+  .ctrl-group { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 8px; }
+  .ctrl-group label { font-size: 11px; color: var(--muted); }
+  .ctrl-group input[type=number] { width: 52px; background: var(--bg); border: 1px solid #444; color: var(--text); padding: 4px 6px; border-radius: 4px; text-align: center; font-size: 12px; }
+  .ctrl-group input[type=checkbox] { accent-color: var(--accent); }
+  .btn { padding: 8px 16px; border: none; border-radius: 6px; font-size: 13px; font-weight: 700; cursor: pointer; transition: .15s; }
+  .btn-primary { background: var(--accent); color: #111; }
+  .btn-primary:hover { background: #e6991a; }
+  .btn-primary:disabled { background: #555; color: #999; cursor: not-allowed; }
+  .btn-dark { background: #333; color: #fff; border: 1px solid #555; }
+  .btn-dark:hover { background: #444; }
+  .status { font-size: 11px; color: var(--green); }
+  .status.err { color: #f44; }
+  .spacer { flex: 1; }
+  #info { font-size: 12px; color: var(--muted); text-align: center; padding: 40px 20px; }
+  #info em { color: var(--accent); font-style: normal; }
 
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : fallbackConfig;
-        
-        let db;
+  /* === Print page layout === */
+  .page {
+    width: 210mm; height: 297mm; background: white; margin: 20px auto;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5); position: relative; overflow: hidden;
+  }
+  .labels-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 37mm);
+    grid-template-rows: repeat(19, 14mm);
+  }
+  .label-cell {
+    width: 37mm; height: 14mm;
+    border: 1px dashed #ddd;
+    display: flex; align-items: center;
+    padding: 0.3mm 0.5mm;
+    overflow: hidden; position: relative;
+    page-break-inside: avoid;
+  }
+  .label-id {
+    position: absolute; top: 0.3mm; left: 0.3mm;
+    min-width: 5.5mm; height: 5.5mm;
+    border: 0.8px solid #000; border-radius: 50%;
+    font-size: 6pt; font-weight: 900; color: #000; background: #fff;
+    display: flex; justify-content: center; align-items: center;
+    z-index: 10; line-height: 1; padding: 0 0.5mm;
+  }
+  .label-content {
+    flex: 1; display: flex; justify-content: center; align-items: center;
+    height: 100%; overflow: hidden; padding-left: 4mm; gap: 0.5mm;
+  }
+  .label-img {
+    object-fit: contain; height: 12mm;
+    max-width: 30mm;
+  }
+  .label-img.img-2 { max-width: 14mm; max-height: 11mm; }
+  .label-img.img-3 { max-width: 9mm; max-height: 10mm; }
 
-        async function initApp() {
-            try {
-                const app = initializeApp(firebaseConfig);
-                const auth = getAuth(app);
-                db = getFirestore(app);
-                
-                onAuthStateChanged(auth, (user) => {
-                    if (user) {
-                        document.getElementById('status').innerHTML = '<span class="text-green-600"><i class="fa-solid fa-check-circle"></i> 已連線至雲端</span>';
-                        document.getElementById('load-btn').disabled = false;
-                    } else {
-                        signInAnonymously(auth);
-                    }
-                });
-            } catch (e) {
-                console.error("Firebase Init Error", e);
-                document.getElementById('status').innerHTML = '<span class="text-red-500">連線錯誤，請檢查設定</span>';
-            }
-        }
+  /* Large drawer labels */
+  .label-cell.large {
+    background: #f8f8f8;
+  }
+  .label-cell.large .label-id {
+    border-color: var(--accent); color: #333;
+  }
 
-        window.loadData = async () => {
-            if (!db) return;
-            const btn = document.getElementById('load-btn');
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 讀取中...';
-            btn.disabled = true;
-
-            try {
-                const querySnapshot = await getDocs(collection(db, 'artifacts', 'lego-number-app', 'public', 'data', 'lego_mappings'));
-                
-                const drawerMap = {};
-
-                querySnapshot.forEach((doc) => {
-                    const data = doc.data();
-                    let drawers = [];
-                    if (Array.isArray(data.drawers)) drawers = data.drawers;
-                    else if (data.drawer_id) drawers = [data.drawer_id];
-
-                    drawers.forEach(drawerId => {
-                        if (!drawerMap[drawerId]) drawerMap[drawerId] = [];
-                        // 儲存每個零件的資料
-                        drawerMap[drawerId].push({
-                            id: data.part_id,
-                            img: data.img_url || "" 
-                        });
-                    });
-                });
-
-                renderLabels(drawerMap);
-                btn.innerHTML = '<i class="fa-solid fa-rotate"></i> 重新讀取';
-                btn.disabled = false;
-                
-                document.getElementById('preview-section').scrollIntoView({ behavior: 'smooth' });
-
-            } catch (error) {
-                console.error("Error loading docs: ", error);
-                alert("讀取資料失敗: " + error.message);
-                btn.innerHTML = '讀取失敗';
-            }
-        };
-
-        function naturalSort(a, b) {
-            return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-        }
-
-        function renderLabels(drawerMap) {
-            const container = document.getElementById('pages-container');
-            container.innerHTML = '';
-
-            const sortedDrawerIds = Object.keys(drawerMap).sort(naturalSort);
-            
-            // L1437: 95格
-            const labelsPerPage = 95; 
-            const totalLabels = sortedDrawerIds.length;
-            const totalPages = Math.ceil(totalLabels / labelsPerPage);
-
-            for (let i = 0; i < totalPages; i++) {
-                const page = document.createElement('div');
-                page.className = 'page';
-                
-                const pageContent = document.createElement('div');
-                pageContent.className = 'labels-grid';
-                
-                const pageIds = sortedDrawerIds.slice(i * labelsPerPage, (i + 1) * labelsPerPage);
-                
-                pageIds.forEach(drawerId => {
-                    const parts = drawerMap[drawerId];
-                    const label = createLabelElement(drawerId, parts);
-                    pageContent.appendChild(label);
-                });
-
-                page.appendChild(pageContent);
-                container.appendChild(page);
-            }
-            
-            updateStyles(); 
-        }
-
-        function createLabelElement(drawerId, parts) {
-            const div = document.createElement('div');
-            div.className = 'label-cell';
-            
-            // 1. 取得該抽屜內所有 "不重複" 的圖片網址
-            const uniqueImages = [...new Set(parts.map(p => p.img).filter(url => url && url.length > 0))];
-
-            // 2. 限制顯示數量
-            const maxImages = 3;
-            const imagesToShow = uniqueImages.slice(0, maxImages);
-            
-            // 3. 根據圖片數量決定 class
-            let imgClass = 'img-single';
-            if (imagesToShow.length === 2) imgClass = 'img-double';
-            if (imagesToShow.length >= 3) imgClass = 'img-triple';
-
-            const imagesHtml = imagesToShow.map(url => 
-                `<img src="${url}" class="label-img ${imgClass}" onerror="this.style.display='none'">`
-            ).join('');
-
-            div.innerHTML = `
-                <div class="label-id">${drawerId}</div>
-                <div class="label-content">
-                    ${imagesHtml}
-                </div>
-            `;
-            return div;
-        }
-
-        initApp();
-    </script>
-
-    <style>
-        /* UI 樣式 */
-        body { background: #f0f2f5; font-family: 'Noto Sans TC', sans-serif; }
-        .control-panel {
-            background: white; padding: 20px; border-bottom: 1px solid #ddd;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            position: sticky; top: 0; z-index: 50;
-        }
-        
-        /* 列印樣式核心設定 */
-        @media print {
-            body { background: white; -webkit-print-color-adjust: exact; }
-            /* 隱藏控制面板和任何帶有 no-print class 的元素 */
-            .control-panel, .no-print { display: none !important; }
-            .page { 
-                box-shadow: none !important; 
-                margin: 0 !important; 
-                border: none !important;
-                page-break-after: always;
-            }
-            @page { size: A4; margin: 0; }
-        }
-
-        .page {
-            width: 210mm;
-            height: 297mm;
-            background: white;
-            margin: 20px auto;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            position: relative;
-            overflow: hidden;
-            box-sizing: border-box;
-        }
-
-        .labels-grid {
-            display: grid;
-            grid-template-columns: repeat(5, 37mm);
-            grid-template-rows: repeat(19, 14mm);
-        }
-
-        .label-cell {
-            width: 37mm;
-            height: 14mm;
-            border: 1px dashed #e5e7eb;
-            box-sizing: border-box;
-            display: flex;
-            align-items: center;
-            padding: 0.5mm 1mm;
-            overflow: hidden;
-            page-break-inside: avoid;
-            position: relative; /* 關鍵：為了讓 label-id 絕對定位 */
-        }
-        
-        @media print { .label-cell { border: none; } }
-
-        /* 修改後的抽屜號碼樣式 */
-        .label-id {
-            position: absolute;
-            top: 0.5mm;
-            left: 0.5mm;
-            width: 6mm;         /* 設定固定寬度 */
-            height: 6mm;        /* 設定固定高度 */
-            border: 1px solid #000; /* 外圍圓圈 */
-            border-radius: 50%; /* 圓形 */
-            font-size: 7pt;     /* 縮小字體 */
-            font-weight: 900;
-            color: #000;
-            background-color: white; /* 白底，避免與圖片重疊時看不清 */
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            line-height: 1;
-            z-index: 10;        /* 確保浮在圖片上方 */
-        }
-
-        .label-content {
-            flex: 1;
-            display: flex;
-            justify-content: space-evenly;
-            align-items: center;
-            height: 100%;
-            overflow: hidden;
-            padding-left: 3mm; /* 稍微往右推，避免被左上角的圓圈完全擋住 */
-        }
-
-        .label-img {
-            object-fit: contain;
-            height: 100%;
-        }
-
-        /* 動態圖片大小控制 */
-        .img-single {
-            max-width: 24mm;
-            max-height: 12mm;
-        }
-        .img-double {
-            max-width: 11mm;
-            max-height: 11mm;
-        }
-        .img-triple {
-            max-width: 7mm;
-            max-height: 10mm;
-        }
-
-    </style>
+  /* Print styles */
+  @media print {
+    body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .control-panel, #info, .no-print { display: none !important; }
+    .page { box-shadow: none !important; margin: 0 !important; border: none !important; page-break-after: always; }
+    @page { size: A4; margin: 0; }
+    .label-cell { border: none !important; }
+  }
+</style>
 </head>
-<body class="bg-gray-100">
+<body>
 
-    <div class="control-panel no-print">
-        <div class="max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
-            <div>
-                <h1 class="text-xl font-bold text-gray-800"><i class="fa-solid fa-print mr-2"></i>樂高標籤列印 (L1437 多圖版)</h1>
-                <p class="text-sm text-gray-500 mt-1" id="status">正在連線...</p>
-            </div>
+<div class="control-panel no-print">
+  <h1>🧱 BrickSort 標籤列印<span>L1437 貼紙 · 5×19 = 95 格/頁</span></h1>
 
-            <div class="bg-blue-50 p-3 rounded-lg border border-blue-100 text-sm flex gap-4 items-center">
-                <div class="flex flex-col">
-                    <label class="font-bold text-blue-800 text-xs">上邊距</label>
-                    <div class="flex items-center">
-                        <input type="number" id="margin-top" value="15.5" step="0.5" class="w-16 p-1 border rounded text-center" onchange="updateStyles()">
-                        <span class="ml-1 text-xs">mm</span>
-                    </div>
-                </div>
-                <div class="flex flex-col">
-                    <label class="font-bold text-blue-800 text-xs">左邊距</label>
-                    <div class="flex items-center">
-                        <input type="number" id="margin-left" value="12.5" step="0.5" class="w-16 p-1 border rounded text-center" onchange="updateStyles()">
-                        <span class="ml-1 text-xs">mm</span>
-                    </div>
-                </div>
-                <div class="h-8 w-px bg-blue-200"></div>
-                <div class="flex items-center gap-2">
-                    <input type="checkbox" id="show-borders" class="accent-blue-600" checked onchange="toggleBorders()">
-                    <label for="show-borders" class="text-gray-700 text-xs cursor-pointer">預覽框線</label>
-                </div>
-            </div>
+  <div class="ctrl-group">
+    <label>上邊距</label>
+    <input type="number" id="margin-top" value="15.5" step="0.5" onchange="updateMargins()">
+    <label>mm</label>
+  </div>
+  <div class="ctrl-group">
+    <label>左邊距</label>
+    <input type="number" id="margin-left" value="12.5" step="0.5" onchange="updateMargins()">
+    <label>mm</label>
+  </div>
+  <div class="ctrl-group">
+    <input type="checkbox" id="show-borders" checked onchange="toggleBorders()">
+    <label for="show-borders">預覽框線</label>
+  </div>
+  <div class="ctrl-group">
+    <label>篩選</label>
+    <select id="filter-zone" style="background:var(--bg);border:1px solid #444;color:var(--text);padding:4px 8px;border-radius:4px;font-size:12px" onchange="renderFromCache()">
+      <option value="all">全部</option>
+      <option value="small">小抽屜 (1~450)</option>
+      <option value="large">大抽屜 (L1~L27)</option>
+      <option value="bag">收納袋 (B)</option>
+    </select>
+  </div>
 
-            <div class="flex gap-2">
-                <button id="load-btn" onclick="loadData()" disabled class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold shadow disabled:bg-gray-300 disabled:cursor-not-allowed transition">
-                    讀取資料
-                </button>
-                <button onclick="window.print()" class="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg font-bold shadow transition">
-                    <i class="fa-solid fa-print"></i> 列印
-                </button>
-            </div>
-        </div>
-    </div>
+  <div class="spacer"></div>
+  <span id="status" class="status">讀取中...</span>
+  <button id="load-btn" class="btn btn-primary" onclick="loadFromBrickSort()" disabled>讀取 BrickSort</button>
+  <button class="btn btn-dark" onclick="window.print()">🖨 列印</button>
+</div>
 
-    <!-- 加上 no-print class 確保這段文字不會被列印 -->
-    <div id="preview-section" class="py-8 text-center text-gray-500 text-sm no-print">
-        請點擊上方按鈕讀取資料，預覽畫面將顯示於此。
-    </div>
+<div id="info">
+  連線至 Firebase 後，點擊 <em>讀取 BrickSort</em> 載入已建檔零件。<br>
+  每個抽屜號碼會顯示該格的零件縮圖，列印到 L1437 貼紙上貼到實體抽屜。
+</div>
 
-    <div id="pages-container"></div>
+<div id="pages-container"></div>
 
-    <script>
-        window.updateStyles = () => {
-            const top = document.getElementById('margin-top').value;
-            const left = document.getElementById('margin-left').value;
-            const pages = document.querySelectorAll('.labels-grid');
-            pages.forEach(grid => {
-                grid.style.paddingTop = `${top}mm`;
-                grid.style.paddingLeft = `${left}mm`;
-            });
-        };
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        window.toggleBorders = () => {
-            const show = document.getElementById('show-borders').checked;
-            const style = document.getElementById('dynamic-style') || document.createElement('style');
-            style.id = 'dynamic-style';
-            style.innerHTML = show ? '' : '.label-cell { border: none !important; }';
-            document.head.appendChild(style);
-        };
-    </script>
+const FB_CONFIG = {
+  apiKey: "AIzaSyDZltB8OQti4ZPkME-K95HXZL51oByXE10",
+  projectId: "storesmart-7ae65"
+};
 
+let cachedItems = [];
+
+async function init() {
+  try {
+    const app = initializeApp(FB_CONFIG);
+    const db = getFirestore(app);
+    document.getElementById('status').textContent = '✓ Firebase 已連線';
+    document.getElementById('load-btn').disabled = false;
+
+    window.loadFromBrickSort = async () => {
+      const btn = document.getElementById('load-btn');
+      btn.disabled = true; btn.textContent = '讀取中...';
+
+      try {
+        const snap = await getDocs(collection(db, 'lego_parts'));
+        cachedItems = [];
+        snap.forEach(doc => cachedItems.push({ id: doc.id, ...doc.data() }));
+
+        btn.textContent = '✓ 已載入 ' + cachedItems.length + ' 件';
+        btn.disabled = false;
+        renderFromCache();
+      } catch(e) {
+        btn.textContent = '讀取失敗'; console.error(e);
+        document.getElementById('status').className = 'status err';
+        document.getElementById('status').textContent = '錯誤: ' + e.message;
+      }
+    };
+  } catch(e) {
+    document.getElementById('status').className = 'status err';
+    document.getElementById('status').textContent = '連線失敗: ' + e.message;
+  }
+}
+
+window.renderFromCache = () => {
+  const filter = document.getElementById('filter-zone').value;
+  const drawerMap = {};
+
+  cachedItems.forEach(item => {
+    const slot = item.slot || '';
+    if (!slot) return;
+
+    // Filter
+    if (filter === 'small' && (slot.startsWith('L') || slot.startsWith('B'))) return;
+    if (filter === 'large' && !slot.startsWith('L')) return;
+    if (filter === 'bag' && !slot.startsWith('B')) return;
+
+    // Group by drawer (strip a/b suffix for small drawers)
+    let drawerKey = slot;
+    const m = slot.match(/^(\d+)[ab]$/);
+    if (m) drawerKey = m[1]; // "1a" → "1", "1b" → "1"
+
+    if (!drawerMap[drawerKey]) drawerMap[drawerKey] = { items: [], sides: {} };
+    drawerMap[drawerKey].items.push(item);
+
+    // Track a/b sides
+    if (m) {
+      const side = slot.endsWith('a') ? 'a' : 'b';
+      if (!drawerMap[drawerKey].sides[side]) drawerMap[drawerKey].sides[side] = [];
+      drawerMap[drawerKey].sides[side].push(item);
+    }
+  });
+
+  renderLabels(drawerMap);
+};
+
+function naturalSort(a, b) {
+  // Sort: numbers first (1,2,...450), then L1..L27, then B1..
+  const isNumA = /^\d+$/.test(a), isNumB = /^\d+$/.test(b);
+  const isLA = a.startsWith('L'), isLB = b.startsWith('L');
+  if (isNumA && isNumB) return parseInt(a) - parseInt(b);
+  if (isNumA && !isNumB) return -1;
+  if (!isNumA && isNumB) return 1;
+  if (isLA && isLB) return parseInt(a.slice(1)) - parseInt(b.slice(1));
+  if (isLA && !isLB) return -1;
+  if (!isLA && isLB) return 1;
+  return a.localeCompare(b, undefined, { numeric: true });
+}
+
+function renderLabels(drawerMap) {
+  const container = document.getElementById('pages-container');
+  container.innerHTML = '';
+  document.getElementById('info').style.display = 'none';
+
+  const sortedKeys = Object.keys(drawerMap).sort(naturalSort);
+  const labelsPerPage = 95;
+  const totalPages = Math.ceil(sortedKeys.length / labelsPerPage);
+
+  for (let p = 0; p < totalPages; p++) {
+    const page = document.createElement('div');
+    page.className = 'page';
+    const grid = document.createElement('div');
+    grid.className = 'labels-grid';
+
+    const pageKeys = sortedKeys.slice(p * labelsPerPage, (p + 1) * labelsPerPage);
+
+    pageKeys.forEach(key => {
+      const data = drawerMap[key];
+      const label = createLabel(key, data);
+      grid.appendChild(label);
+    });
+
+    page.appendChild(grid);
+    container.appendChild(page);
+  }
+
+  updateMargins();
+}
+
+function createLabel(drawerId, data) {
+  const div = document.createElement('div');
+  div.className = 'label-cell';
+  if (drawerId.startsWith('L')) div.classList.add('large');
+
+  // For small drawers: show a-side and b-side thumbs
+  const isSmall = /^\d+$/.test(drawerId);
+  let images = [];
+
+  if (isSmall && data.sides) {
+    // Pick one thumbnail from each side
+    const aImg = data.sides.a?.[0]?.thumbnailUrl || data.sides.a?.[0]?.imageData || '';
+    const bImg = data.sides.b?.[0]?.thumbnailUrl || data.sides.b?.[0]?.imageData || '';
+    if (aImg) images.push(aImg);
+    if (bImg) images.push(bImg);
+  }
+
+  if (images.length === 0) {
+    // Fallback: unique images from all items
+    const unique = [...new Set(data.items.map(i => i.thumbnailUrl || i.imageData || '').filter(Boolean))];
+    images = unique.slice(0, 3);
+  }
+
+  const imgClass = images.length >= 3 ? 'img-3' : images.length === 2 ? 'img-2' : '';
+  const imgsHtml = images.map(url =>
+    `<img src="${url}" class="label-img ${imgClass}" onerror="this.style.display='none'">`
+  ).join('');
+
+  // Display label
+  let displayId = drawerId;
+  if (isSmall) {
+    // Show "1" for drawer 1 (a+b combined)
+    displayId = drawerId;
+  }
+
+  div.innerHTML = `
+    <div class="label-id">${displayId}</div>
+    <div class="label-content">${imgsHtml || '<span style="color:#ccc;font-size:7pt">空</span>'}</div>
+  `;
+  return div;
+}
+
+window.updateMargins = () => {
+  const top = document.getElementById('margin-top').value;
+  const left = document.getElementById('margin-left').value;
+  document.querySelectorAll('.labels-grid').forEach(g => {
+    g.style.paddingTop = top + 'mm';
+    g.style.paddingLeft = left + 'mm';
+  });
+};
+
+window.toggleBorders = () => {
+  const show = document.getElementById('show-borders').checked;
+  let style = document.getElementById('dynamic-style');
+  if (!style) { style = document.createElement('style'); style.id = 'dynamic-style'; document.head.appendChild(style); }
+  style.innerHTML = show ? '' : '.label-cell { border: none !important; }';
+};
+
+init();
+</script>
 </body>
 </html>
