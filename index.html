@@ -19,6 +19,7 @@
   .ctrl-group label { font-size: 11px; color: var(--muted); }
   .ctrl-group input[type=number] { width: 52px; background: var(--bg); border: 1px solid #444; color: var(--text); padding: 4px 6px; border-radius: 4px; text-align: center; font-size: 12px; }
   .ctrl-group input[type=checkbox] { accent-color: var(--accent); }
+  .ctrl-group select { background:var(--bg);border:1px solid #444;color:var(--text);padding:4px 8px;border-radius:4px;font-size:12px; }
   .btn { padding: 8px 16px; border: none; border-radius: 6px; font-size: 13px; font-weight: 700; cursor: pointer; transition: .15s; }
   .btn-primary { background: var(--accent); color: #111; }
   .btn-primary:hover { background: #e6991a; }
@@ -30,6 +31,7 @@
   .spacer { flex: 1; }
   #info { font-size: 12px; color: var(--muted); text-align: center; padding: 40px 20px; }
   #info em { color: var(--accent); font-style: normal; }
+  #range-group { transition: .2s; }
 
   /* === Print page layout === */
   .page {
@@ -45,36 +47,51 @@
     width: 37mm; height: 14mm;
     border: 1px dashed #ddd;
     display: flex; align-items: center;
-    padding: 0.3mm 0.5mm;
     overflow: hidden; position: relative;
     page-break-inside: avoid;
   }
+
+  /* === MAXIMIZED NUMBER === */
   .label-id {
-    position: absolute; top: 0.3mm; left: 0.3mm;
-    min-width: 5.5mm; height: 5.5mm;
-    border: 0.8px solid #000; border-radius: 50%;
-    font-size: 6pt; font-weight: 900; color: #000; background: #fff;
+    flex-shrink: 0;
+    width: 14mm; height: 13.2mm;
     display: flex; justify-content: center; align-items: center;
-    z-index: 10; line-height: 1; padding: 0 0.5mm;
+    font-weight: 900; color: #000;
+    line-height: 1; padding: 0 0.3mm;
+    border-right: 0.5px solid #ccc;
+    /* Font size set dynamically by JS based on digit count */
+    font-size: 28pt;
+    font-family: 'Arial Black', 'Impact', sans-serif;
+    letter-spacing: -0.5pt;
   }
+  /* 1-2 digit numbers (1~99): largest */
+  .label-id.digits-1, .label-id.digits-2 { font-size: 32pt; }
+  /* 3 digit numbers (100~450): slightly smaller */
+  .label-id.digits-3 { font-size: 24pt; }
+  /* L01~L27: with prefix */
+  .label-id.digits-L { font-size: 20pt; letter-spacing: -1pt; }
+  /* B01~B99: with prefix */
+  .label-id.digits-B { font-size: 20pt; letter-spacing: -1pt; }
+  /* B100+: smaller */
+  .label-id.digits-B3 { font-size: 16pt; letter-spacing: -1pt; }
+
   .label-content {
     flex: 1; display: flex; justify-content: center; align-items: center;
-    height: 100%; overflow: hidden; padding-left: 4mm; gap: 0.5mm;
+    height: 100%; overflow: hidden; gap: 0.5mm;
   }
   .label-img {
     object-fit: contain; height: 12mm;
-    max-width: 30mm;
+    max-width: 20mm;
   }
-  .label-img.img-2 { max-width: 14mm; max-height: 11mm; }
-  .label-img.img-3 { max-width: 9mm; max-height: 10mm; }
+  .label-img.img-2 { max-width: 10mm; max-height: 11mm; }
+  .label-img.img-3 { max-width: 7mm; max-height: 10mm; }
 
   /* Large drawer labels */
-  .label-cell.large {
-    background: #f8f8f8;
-  }
-  .label-cell.large .label-id {
-    border-color: var(--accent); color: #333;
-  }
+  .label-cell.large { background: #f8f8f8; }
+  .label-cell.large .label-id { color: #333; border-right-color: var(--accent); }
+
+  /* Bag labels */
+  .label-cell.bag { background: #fafaf5; }
 
   /* Print styles */
   @media print {
@@ -83,6 +100,7 @@
     .page { box-shadow: none !important; margin: 0 !important; border: none !important; page-break-after: always; }
     @page { size: A4; margin: 0; }
     .label-cell { border: none !important; }
+    .label-id { border-right: 0.3px solid #ddd !important; }
   }
 </style>
 </head>
@@ -107,12 +125,20 @@
   </div>
   <div class="ctrl-group">
     <label>篩選</label>
-    <select id="filter-zone" style="background:var(--bg);border:1px solid #444;color:var(--text);padding:4px 8px;border-radius:4px;font-size:12px" onchange="renderFromCache()">
+    <select id="filter-zone" onchange="onFilterChange()">
       <option value="all">全部</option>
       <option value="small">小抽屜 (1~450)</option>
       <option value="large">大抽屜 (L1~L27)</option>
       <option value="bag">收納袋 (B)</option>
     </select>
+  </div>
+
+  <!-- Range selection (visible for small/bag) -->
+  <div class="ctrl-group" id="range-group" style="display:none">
+    <label>從</label>
+    <input type="number" id="range-from" value="1" min="1" step="1" onchange="renderFromCache()">
+    <label>到</label>
+    <input type="number" id="range-to" value="999" min="1" step="1" onchange="renderFromCache()">
   </div>
 
   <div class="spacer"></div>
@@ -157,7 +183,7 @@ async function init() {
 
         btn.textContent = '✓ 已載入 ' + cachedItems.length + ' 件';
         btn.disabled = false;
-        renderFromCache();
+        onFilterChange();
       } catch(e) {
         btn.textContent = '讀取失敗'; console.error(e);
         document.getElementById('status').className = 'status err';
@@ -170,28 +196,83 @@ async function init() {
   }
 }
 
+// Show/hide range inputs based on filter
+window.onFilterChange = () => {
+  const filter = document.getElementById('filter-zone').value;
+  const rangeGroup = document.getElementById('range-group');
+  const fromInput = document.getElementById('range-from');
+  const toInput = document.getElementById('range-to');
+
+  if (filter === 'bag') {
+    rangeGroup.style.display = 'flex';
+    // Auto-detect max bag number
+    let maxBag = 1;
+    cachedItems.forEach(i => {
+      const m = (i.slot || '').match(/^B(\d+)$/);
+      if (m) maxBag = Math.max(maxBag, parseInt(m[1]));
+    });
+    fromInput.value = 1;
+    toInput.value = maxBag;
+  } else if (filter === 'small') {
+    rangeGroup.style.display = 'flex';
+    fromInput.value = 1;
+    toInput.value = 450;
+  } else if (filter === 'large') {
+    rangeGroup.style.display = 'flex';
+    fromInput.value = 1;
+    toInput.value = 27;
+  } else {
+    rangeGroup.style.display = 'none';
+  }
+  renderFromCache();
+};
+
 window.renderFromCache = () => {
   const filter = document.getElementById('filter-zone').value;
+  const rangeFrom = parseInt(document.getElementById('range-from').value) || 1;
+  const rangeTo = parseInt(document.getElementById('range-to').value) || 999;
   const drawerMap = {};
 
   cachedItems.forEach(item => {
     const slot = item.slot || '';
     if (!slot) return;
 
-    // Filter
+    // Filter by zone
     if (filter === 'small' && (slot.startsWith('L') || slot.startsWith('B'))) return;
     if (filter === 'large' && !slot.startsWith('L')) return;
     if (filter === 'bag' && !slot.startsWith('B')) return;
 
+    // Filter by range
+    if (filter === 'small' || filter === 'all') {
+      const sm = slot.match(/^(\d+)[ab]?$/);
+      if (sm && filter === 'small') {
+        const n = parseInt(sm[1]);
+        if (n < rangeFrom || n > rangeTo) return;
+      }
+    }
+    if (filter === 'large') {
+      const lm = slot.match(/^L(\d+)$/);
+      if (lm) {
+        const n = parseInt(lm[1]);
+        if (n < rangeFrom || n > rangeTo) return;
+      }
+    }
+    if (filter === 'bag') {
+      const bm = slot.match(/^B(\d+)$/);
+      if (bm) {
+        const n = parseInt(bm[1]);
+        if (n < rangeFrom || n > rangeTo) return;
+      }
+    }
+
     // Group by drawer (strip a/b suffix for small drawers)
     let drawerKey = slot;
     const m = slot.match(/^(\d+)[ab]$/);
-    if (m) drawerKey = m[1]; // "1a" → "1", "1b" → "1"
+    if (m) drawerKey = m[1];
 
     if (!drawerMap[drawerKey]) drawerMap[drawerKey] = { items: [], sides: {} };
     drawerMap[drawerKey].items.push(item);
 
-    // Track a/b sides
     if (m) {
       const side = slot.endsWith('a') ? 'a' : 'b';
       if (!drawerMap[drawerKey].sides[side]) drawerMap[drawerKey].sides[side] = [];
@@ -203,7 +284,6 @@ window.renderFromCache = () => {
 };
 
 function naturalSort(a, b) {
-  // Sort: numbers first (1,2,...450), then L1..L27, then B1..
   const isNumA = /^\d+$/.test(a), isNumB = /^\d+$/.test(b);
   const isLA = a.startsWith('L'), isLB = b.startsWith('L');
   if (isNumA && isNumB) return parseInt(a) - parseInt(b);
@@ -243,19 +323,32 @@ function renderLabels(drawerMap) {
   }
 
   updateMargins();
+
+  // Update status
+  document.getElementById('status').textContent = '✓ ' + sortedKeys.length + ' 個標籤 · ' + totalPages + ' 頁';
+}
+
+function getDigitClass(id) {
+  if (id.startsWith('B')) {
+    return id.length > 3 ? 'digits-B3' : 'digits-B';
+  }
+  if (id.startsWith('L')) return 'digits-L';
+  const len = id.replace(/^0+/, '').length || 1;
+  if (len <= 1) return 'digits-1';
+  if (len <= 2) return 'digits-2';
+  return 'digits-3';
 }
 
 function createLabel(drawerId, data) {
   const div = document.createElement('div');
   div.className = 'label-cell';
   if (drawerId.startsWith('L')) div.classList.add('large');
+  if (drawerId.startsWith('B')) div.classList.add('bag');
 
-  // For small drawers: show a-side and b-side thumbs
   const isSmall = /^\d+$/.test(drawerId);
   let images = [];
 
   if (isSmall && data.sides) {
-    // Pick one thumbnail from each side
     const aImg = data.sides.a?.[0]?.thumbnailUrl || data.sides.a?.[0]?.imageData || '';
     const bImg = data.sides.b?.[0]?.thumbnailUrl || data.sides.b?.[0]?.imageData || '';
     if (aImg) images.push(aImg);
@@ -263,7 +356,6 @@ function createLabel(drawerId, data) {
   }
 
   if (images.length === 0) {
-    // Fallback: unique images from all items
     const unique = [...new Set(data.items.map(i => i.thumbnailUrl || i.imageData || '').filter(Boolean))];
     images = unique.slice(0, 3);
   }
@@ -273,15 +365,14 @@ function createLabel(drawerId, data) {
     `<img src="${url}" class="label-img ${imgClass}" onerror="this.style.display='none'">`
   ).join('');
 
-  // Display label
+  // Display ID: strip leading zeros for small drawers
   let displayId = drawerId;
-  if (isSmall) {
-    // Show "1" for drawer 1 (a+b combined)
-    displayId = drawerId;
-  }
+  if (isSmall) displayId = String(parseInt(drawerId));
+
+  const digitClass = getDigitClass(displayId);
 
   div.innerHTML = `
-    <div class="label-id">${displayId}</div>
+    <div class="label-id ${digitClass}">${displayId}</div>
     <div class="label-content">${imgsHtml || '<span style="color:#ccc;font-size:7pt">空</span>'}</div>
   `;
   return div;
@@ -300,7 +391,7 @@ window.toggleBorders = () => {
   const show = document.getElementById('show-borders').checked;
   let style = document.getElementById('dynamic-style');
   if (!style) { style = document.createElement('style'); style.id = 'dynamic-style'; document.head.appendChild(style); }
-  style.innerHTML = show ? '' : '.label-cell { border: none !important; }';
+  style.innerHTML = show ? '' : '.label-cell { border: none !important; } .label-id { border-right: none !important; }';
 };
 
 init();
